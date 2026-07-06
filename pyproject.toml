@@ -1,0 +1,21 @@
+[build-system]
+requires = ["setuptools>=61.0"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "homm3"
+version = "1.0.0"
+description = "Package for simulation battle process in Heroes of Might and Magic 3"
+authors = [
+  { name="Demio Ryzen", email="demryzen@proton.me" }
+]
+readme = "README.md"
+requires-python = ">=3.12"
+
+dependencies = [
+    "bidict~=0.23.1",
+    "numpy~=2.4.6",
+    "pandas~=3.0.3",
+    "matplotlib~=3.10.9",
+    "tqdm~=4.68.1"
+]

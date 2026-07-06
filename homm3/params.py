@@ -1,0 +1,16 @@
+from pathlib import Path
+
+USE_EMOJI = True
+
+PROJECT_ROOT = Path(__file__).resolve().parents[1]
+DB_PATH = PROJECT_ROOT / "data" / "homm3.db"
+
+FIELD_DISTANCE = 15
+RANGE_PENALTY_DISTANCE = 10
+
+SEPARATOR_LOG_MAXLEN = 80
+
+GOOD_LUCK_PROBS = [1/24, 1/12, 1/8]
+BAD_LUCK_PROBS = [1/12, 1/6, 1/4]
+GOOD_MORALE_PROBS = [1/24, 1/12, 1/8]
+BAD_MORALE_PROBS = [1/12, 1/6, 1/4]
