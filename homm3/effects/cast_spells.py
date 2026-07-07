@@ -27,7 +27,10 @@ class FaerieRandomSpellEffect(Effect):
         weights = np.array([self.spells[name] for name in names], dtype=float)
         probabilities = weights / weights.sum()
         chosen = controller.battle.rng.choice(names, p=probabilities)
-        effect = effect_from_str(chosen, params={"mastery": SpellMastery.Advanced, "power": 5 * source.count})
+        params = {"mastery": SpellMastery.Advanced, "power": 5 * source.count}
+        if chosen == "LightningBolt":
+            params = {"mode": str(SpellMastery.Advanced), "power": 5 * source.count}
+        effect = effect_from_str(chosen, params=params)
 
         return EffectResult(
             events=[
