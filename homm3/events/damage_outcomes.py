@@ -1,7 +1,7 @@
 from dataclasses import dataclass
 
 from homm3.events import Event
-from homm3.enums import EventType, AttackType
+from homm3.enums import AttackOrder, EventType, AttackType
 
 
 @dataclass(slots=True)
@@ -17,7 +17,7 @@ class PhysicalDamageAppliedEvent(Event):
     luck_formula: str = ""
     damage_formula: str = ""
     attack_type: AttackType | None = None
-    is_retaliation: bool = False
+    attack_order: AttackOrder = AttackOrder.Regular
     type: EventType = EventType.DamageApplied
 
     def render(self) -> str:

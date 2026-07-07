@@ -15,6 +15,9 @@ class CavalryStrategy(MeleeStrategy):
         if self.is_vs_ranged(ctx, view):
             return self.next_action_vs_ranged(ctx)
 
+        if self.is_vs_hit_and_run(ctx, view):
+            return self.go_closer_to_hit_and_run(ctx)
+
         return self.next_action_vs_melee(ctx)
 
     def next_action_vs_ranged(self, ctx: ActionContext) -> AvailableAction:

@@ -1,3 +1,7 @@
+from collections import deque
+from dataclasses import dataclass
+from enum import Enum, auto
+
 import numpy as np
 
 from homm3.enums import ActionType
@@ -12,12 +16,39 @@ from homm3.strategies.alternative_actions import HeatStrokeStrategy, MeditationS
 from homm3.strategies.damage_maximization import CavalryStrategy
 from homm3.params import FIELD_DISTANCE, BAD_MORALE_PROBS, GOOD_MORALE_PROBS
 from homm3.contexts import ContextFactory, AvailableAction, MoraleContext
-from homm3.effects import effect_from_str, Effect
+from homm3.effects import effect_from_str, Effect, EffectResult
 from homm3.events import EventHandler
 from homm3.events.battle_steps import BattleStartedEvent, BattleEndedEvent, RoundStartedEvent, RoundEndedEvent, \
     TurnStartedEvent, TurnEndedEvent, TurnSkippedEvent, TurnInfoEvent
 from homm3.events.default_actions import ActionSelectedEvent, ActionStartedEvent, ActionEndedEvent
 from homm3.events.effects_processing import EffectAppliedEvent
+
+
+class EventReactionPhase(Enum):
+    States = auto()
+    Abilities = auto()
+    System = auto()
+
+
+@dataclass(slots=True)
+class EventBatchQueueItem:
+    events: list
+
+
+@dataclass(slots=True)
+class EventReactionQueueItem:
+    event: object
+    phase: EventReactionPhase
+
+
+@dataclass(slots=True)
+class EffectQueueItem:
+    effect: Effect
+
+
+@dataclass(slots=True)
+class CleanupQueueItem:
+    pass
 
 
 class LineBattleView:
@@ -74,6 +105,8 @@ class LineBattle(Battle):
         self.controller = BattleController(self)
         self.context_factory = ContextFactory(self)
         self.turn_queue = TurnQueue()
+        self.pending = deque()
+        self.is_processing_queue = False
 
         self.winner = None
         self.round_index = 0
@@ -93,29 +126,87 @@ class LineBattle(Battle):
     def view(self) -> LineBattleView:
         return LineBattleView(self)
 
-    def process_effect_result(self, result):
-        self.dispatch_events(result.events)
-        for effect in result.effects:
-            self.apply_effect(effect)
+    def _queue_items(self, items: list, immediate: bool = False):
+        if immediate:
+            for item in reversed(items):
+                self.pending.appendleft(item)
+            return
 
-    def process_event_reactions(self, event):
+        self.pending.extend(items)
+
+    def _queue_result(self, result: EffectResult, immediate: bool = False, extra_items: list | None = None):
+        items = []
+        if result.events:
+            items.append(EventBatchQueueItem(result.events))
+        items.extend(EffectQueueItem(effect) for effect in result.effects)
+        if extra_items:
+            items.extend(extra_items)
+        self._queue_items(items, immediate=immediate)
+
+    def process_effect_result(self, result: EffectResult):
+        self._queue_result(result)
+        self.drain_queue()
+
+    def process_event_reaction_phase(self, event, phase: EventReactionPhase):
         if not hasattr(self, "controller"):
             return
 
-        states_result = self.controller.process_state_event(event)
-        self.process_effect_result(states_result)
+        next_phase = None
+        if phase == EventReactionPhase.States:
+            result = self.controller.process_state_event(event)
+            next_phase = EventReactionPhase.Abilities
+        elif phase == EventReactionPhase.Abilities:
+            result = self.controller.process_ability_event(event)
+            next_phase = EventReactionPhase.System
+        elif phase == EventReactionPhase.System:
+            result = self.controller.process_attack_followups(event)
+        else:
+            raise ValueError(f"Unknown event reaction phase: {phase}")
 
-        abilities_result = self.controller.process_ability_event(event)
-        self.process_effect_result(abilities_result)
+        extra_items = []
+        if next_phase is not None:
+            extra_items.append(EventReactionQueueItem(event, next_phase))
+        self._queue_result(result, immediate=True, extra_items=extra_items)
 
-        followups_result = self.controller.process_attack_followups(event)
-        self.process_effect_result(followups_result)
+    def process_event_reactions(self, event):
+        self._queue_items(
+            [EventReactionQueueItem(event, EventReactionPhase.States)],
+            immediate=True,
+        )
 
     def dispatch_events(self, events):
+        if not events:
+            return
+        self._queue_items([EventBatchQueueItem(events)])
+        self.drain_queue()
+
+    def process_event_batch(self, events):
         for event in events:
             self.dispatch(event)
-        for event in events:
-            self.process_event_reactions(event)
+        for event in reversed(events):
+            self.pending.appendleft(EventReactionQueueItem(event, EventReactionPhase.States))
+
+    def drain_queue(self):
+        if self.is_processing_queue:
+            return
+
+        self.is_processing_queue = True
+        try:
+            while self.pending:
+                item = self.pending.popleft()
+                if isinstance(item, EventBatchQueueItem):
+                    self.process_event_batch(item.events)
+                elif isinstance(item, EventReactionQueueItem):
+                    self.process_event_reaction_phase(item.event, item.phase)
+                elif isinstance(item, EffectQueueItem):
+                    self.apply_queued_effect(item.effect)
+                elif isinstance(item, CleanupQueueItem):
+                    cleanup_result = self.controller.cleanup_states()
+                    self._queue_result(cleanup_result, immediate=True)
+                else:
+                    raise TypeError(f"Unknown battle queue item: {item!r}")
+        finally:
+            self.is_processing_queue = False
 
     def get_all_modifiers(self):
         for stack in self.stacks():
@@ -178,10 +269,10 @@ class LineBattle(Battle):
         morale = min(morale, 3)
         return self.rng.random() < GOOD_MORALE_PROBS[morale - 1]
 
-    def apply_effect(self, effect: Effect):
+    def apply_queued_effect(self, effect: Effect):
         blocked_event = self.controller.check_effect_blocked(effect)
         if blocked_event is not None:
-            self.dispatch_events([blocked_event])
+            self._queue_items([EventBatchQueueItem([blocked_event])], immediate=True)
             return
 
         result = effect.apply(self.controller)
@@ -195,10 +286,11 @@ class LineBattle(Battle):
                     effect=str(effect) if effect.log_label is None else effect.log_label,
                 )
             )
-        self.process_effect_result(result)
+        self._queue_result(result, immediate=True, extra_items=[CleanupQueueItem()])
 
-        cleanup_result = self.controller.cleanup_states()
-        self.process_effect_result(cleanup_result)
+    def apply_effect(self, effect: Effect):
+        self._queue_items([EffectQueueItem(effect)])
+        self.drain_queue()
 
     def apply_good_morale(self, stack: Stack):
         self.apply_effect(effect_from_str("GoodMorale").bind(target_id=stack.id))

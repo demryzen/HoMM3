@@ -1,7 +1,7 @@
 from homm3.effects import Effect, EffectResult, register_effect, effect_from_str
 from homm3.effects.default_actions import AttackEffect
 from homm3.effects.states_processing import ApplyStateEffect
-from homm3.enums import AttackType, Status
+from homm3.enums import AttackOrder, AttackType, Status
 
 
 @register_effect
@@ -14,9 +14,7 @@ class HeatStrokeEffect(AttackEffect):
             defender_id=self.defender_id,
             attack_type=AttackType.Special,
             attack_name="uses HeatStroke on",
-            is_retaliation=False,
-            is_preemptive=False,
-            is_additional=False,
+            attack_order=AttackOrder.Regular,
         )
 
 

@@ -9,7 +9,8 @@ class TurnQueue:
         self.current_id = None
 
     def start_round(self, stacks: list[Stack]):
-        ordered = sorted(stacks, key=lambda stack: (-stack.speed_base, stack.id))
+        order = {stack.id: index for index, stack in enumerate(stacks)}
+        ordered = sorted(stacks, key=lambda stack: (-stack.speed_base, order[stack.id]))
         self.active = [stack.id for stack in ordered if not stack.is_died()]
         self.waiting = []
         self.waited = set()

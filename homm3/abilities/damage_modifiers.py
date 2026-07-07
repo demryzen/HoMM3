@@ -51,7 +51,7 @@ class IgnoreAttackAbility(Ability):
     def modify_physical_damage(self, ctx, view):
         if ctx.defender_id != self.stack_id:
             return
-        ctx.attack["factors"].mul(Term(1 - self["val"] / 100, label=None))
+        ctx.attack["factors"].mul(Term(1 - self["val"] / 100, label="IgnoreAttack"))
 
 
 @register_ability
@@ -112,40 +112,56 @@ class PsychicAttackAbility(Ability):
         ctx.damage["factor_prod"].mul(Term(0.5, label="PsychicAttack"))
 
 
+class TargetDamageBonusAbility(Ability):
+    main_schema = {
+        "target": "Str",
+    }
+    val: float = 0.0
+    label: str | None = None
+
+    def modify_physical_damage(self, ctx, view):
+        if ctx.attacker_id != self.stack_id:
+            return
+
+        target = view.stack(ctx.defender_id)
+        if target.name != self["target"]:
+            return
+
+        ctx.damage["factor_sum"].add(Term(self.bonus_value(), label=f"{self.bonus_label()} {target.name}"))
+
+    def bonus_value(self) -> float:
+        return self.val
+
+    def bonus_label(self) -> str:
+        return self.label or self.name
+
+
 @register_ability
-class OppositeAbility(Ability):
+class DamageBonusAgainstAbility(TargetDamageBonusAbility):
+    name = "DamageBonusAgainst"
+    main_schema = {
+        "target": "Str",
+        "val": "Float",
+        "label": "Str",
+    }
+
+    def bonus_value(self) -> float:
+        return self["val"]
+
+    def bonus_label(self) -> str:
+        return self["label"]
+
+
+@register_ability
+class OppositeAbility(TargetDamageBonusAbility):
     name = "Opposite"
-    main_schema = {
-        "target": "Str",
-    }
-
-    def modify_physical_damage(self, ctx, view):
-        if ctx.attacker_id != self.stack_id:
-            return
-
-        target = view.stack(ctx.defender_id)
-        if target.name != self["target"]:
-            return
-
-        ctx.damage["factor_sum"].add(Term(1.0, label=f"Opposite {target.name}"))
+    val = 1.0
 
 
 @register_ability
-class HatesAbility(Ability):
+class HatesAbility(TargetDamageBonusAbility):
     name = "Hates"
-    main_schema = {
-        "target": "Str",
-    }
-
-    def modify_physical_damage(self, ctx, view):
-        if ctx.attacker_id != self.stack_id:
-            return
-
-        target = view.stack(ctx.defender_id)
-        if target.name != self["target"]:
-            return
-
-        ctx.damage["factor_sum"].add(Term(0.5, label=f"Hates {target.name}"))
+    val = 0.5
 
 
 @register_ability

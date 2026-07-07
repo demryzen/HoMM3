@@ -2,7 +2,7 @@ from typing import Any
 
 from homm3.values import Value
 from homm3.filters import filter_from_str, Filter
-from homm3.enums import AttackType, SpellMastery
+from homm3.enums import AttackOrder, AttackType, SpellMastery
 
 
 ARGUMENTS = {}
@@ -168,6 +168,17 @@ class AttackTypeArgument(Argument):
         if isinstance(value, str):
             return AttackType.from_str(value)
         raise TypeError(f"Expected attack type, got {type(value).__name__}!")
+
+
+@register_argument("AttackOrder")
+class AttackOrderArgument(Argument):
+    @staticmethod
+    def parse(value: Any):
+        if isinstance(value, AttackOrder):
+            return value
+        if isinstance(value, str):
+            return AttackOrder.from_str(value)
+        raise TypeError(f"Expected attack order, got {type(value).__name__}!")
 
 
 @register_argument("AttackTarget")

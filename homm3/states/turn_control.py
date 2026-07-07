@@ -1,5 +1,5 @@
-from homm3.contexts import ActionContext, PhysicalDamageContext
-from homm3.enums import EventType, Status, ActionType, SpellMastery
+from homm3.contexts import ActionContext, PhysicalDamageContext, RetaliationContext
+from homm3.enums import AttackOrder, EventType, Status, ActionType, SpellMastery
 from homm3.states import State, register_state, state_from_str
 from homm3.values import Term
 from homm3.effects import EffectResult
@@ -45,6 +45,10 @@ class StonedState(State):
             return
         ctx.clear("Stoned")
 
+    def modify_retaliation(self, ctx: RetaliationContext, view):
+        if ctx.defender_id == self.stack_id:
+            ctx.deny(self.name)
+
     def modify_physical_damage(self, ctx: PhysicalDamageContext, view):
         if ctx.defender_id != self.stack_id:
             return
@@ -71,11 +75,16 @@ class ParalysedState(State):
             return
         ctx.clear("Paralysed")
 
+    def modify_retaliation(self, ctx: RetaliationContext, view):
+        if ctx.defender_id == self.stack_id:
+            ctx.deny(self.name)
+
     def on_event(self, event, controller):
         result = super().on_event(event, controller)
 
         if (event.type == EventType.DamageApplied) and (event.defender_id == self.stack_id):
             self.expire()
+            result.extend(controller.cleanup_states())
             result.extend(
                 controller.add_state(
                     self.stack_id,
@@ -96,7 +105,7 @@ class ParalysedRetaliationState(State):
     def modify_physical_damage(self, ctx: PhysicalDamageContext, view):
         if ctx.attacker_id != self.stack_id:
             return
-        if not ctx.is_retaliation:
+        if ctx.attack_order != AttackOrder.Retaliation:
             return
         ctx.damage["factor_prod"].mul(Term(0.25, label="Paralysed"))
 
@@ -124,11 +133,16 @@ class BlindedState(State):
             return
         ctx.clear("Blinded")
 
+    def modify_retaliation(self, ctx: RetaliationContext, view):
+        if ctx.defender_id == self.stack_id:
+            ctx.deny(self.name)
+
     def on_event(self, event, controller):
         result = super().on_event(event, controller)
 
         if (event.type == EventType.DamageApplied) and (event.defender_id == self.stack_id):
             self.expire()
+            result.extend(controller.cleanup_states())
 
             if self["mastery"] == SpellMastery.Expert:
                 result.extend(
@@ -164,7 +178,7 @@ class BlindRetaliationState(State):
     def modify_physical_damage(self, ctx: PhysicalDamageContext, view):
         if ctx.attacker_id != self.stack_id:
             return
-        if not ctx.is_retaliation:
+        if ctx.attack_order != AttackOrder.Retaliation:
             return
 
         match self["mastery"]:
@@ -214,6 +228,10 @@ class SkipRetaliationState(State):
     dispellable = False
     cumulative = False
 
+    def modify_retaliation(self, ctx: RetaliationContext, view):
+        if ctx.defender_id == self.stack_id:
+            ctx.deny(self.name)
+
     def on_event(self, event, controller):
         result = super().on_event(event, controller)
 
@@ -239,6 +257,10 @@ class HypnotizedState(State):
         ctx.actions.clear()
         if defense is not None:
             ctx.actions.append(defense)
+
+    def modify_retaliation(self, ctx: RetaliationContext, view):
+        if ctx.defender_id == self.stack_id:
+            ctx.deny(self.name)
 
 
 @register_state

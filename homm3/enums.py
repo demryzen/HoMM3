@@ -114,6 +114,13 @@ class AttackType(HoMMEnum):
     Special = auto()
 
 
+class AttackOrder(HoMMEnum):
+    Regular = auto()
+    Retaliation = auto()
+    Preemptive = auto()
+    Additional = auto()
+
+
 class EventType(HoMMEnum):
     BattleStarted = auto()
     BattleEnded = auto()

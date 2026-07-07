@@ -1,6 +1,7 @@
 from homm3.abilities import Ability, register_ability
+from homm3.contexts import RetaliationContext
 from homm3.effects import EffectResult, effect_from_str
-from homm3.enums import EventType, ActionType
+from homm3.enums import AttackOrder, EventType, ActionType
 
 
 @register_ability
@@ -27,6 +28,10 @@ class RetaliationsAbility(Ability):
 @register_ability
 class IgnoreRetaliationAbility(Ability):
     name = "IgnoreRetaliation"
+
+    def modify_retaliation(self, ctx: RetaliationContext, view):
+        if ctx.attacker_id == self.stack_id:
+            ctx.deny(self.name)
 
 
 @register_ability
@@ -98,9 +103,7 @@ class PreemptiveShotAbility(Ability):
             effect_from_str(
                 "Shoot",
                 params={
-                    "is_retaliation": False,
-                    "is_preemptive": True,
-                    "is_additional": False,
+                    "attack_order": AttackOrder.Preemptive,
                     "additional_left": 0,
                 },
             ).bind(source_id=shooter.id, target_id=target.id)

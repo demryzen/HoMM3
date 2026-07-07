@@ -1,7 +1,7 @@
 from dataclasses import dataclass
 
 from homm3.events import Event
-from homm3.enums import EventType, AttackType, ActionType
+from homm3.enums import AttackOrder, EventType, AttackType, ActionType
 
 
 @dataclass(slots=True)
@@ -56,13 +56,11 @@ class AttackStartedEvent(Event):
     defender: str = ""
     attack_name: str = ""
     attack_type: AttackType | None = None
-    is_retaliation: bool = False
-    is_preemptive: bool = False
-    is_additional: bool = False
+    attack_order: AttackOrder = AttackOrder.Regular
     type: EventType = EventType.AttackStarted
 
     def render(self) -> str:
-        suffix = " again" if self.is_additional else ""
+        suffix = " again" if self.attack_order == AttackOrder.Additional else ""
         return f"'{self.attacker}' {self.attack_name}{suffix} '{self.defender}'"
 
 
@@ -73,9 +71,7 @@ class AttackEndedEvent(Event):
     attacker: str = ""
     defender: str = ""
     attack_type: AttackType | None = None
-    is_retaliation: bool = False
-    is_preemptive: bool = False
-    is_additional: bool = False
+    attack_order: AttackOrder = AttackOrder.Regular
     n_died: int = 0
     additional_left: int = 0
     type: EventType = EventType.AttackEnded

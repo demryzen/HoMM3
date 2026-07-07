@@ -1,4 +1,5 @@
 from homm3.effects import Effect, EffectResult, register_effect, effect_from_str
+from homm3.enums import AttackOrder
 
 
 @register_effect
@@ -22,15 +23,11 @@ class MoveEffect(Effect):
 class AttackEffect(Effect):
     name = "Attack"
     secondary_schema = {
-        "is_retaliation": "Bool",
-        "is_preemptive": "Bool",
-        "is_additional": "Bool",
+        "attack_order": "AttackOrder",
         "additional_left": "Int",
     }
     default_params = {
-        "is_retaliation": False,
-        "is_preemptive": False,
-        "is_additional": False,
+        "attack_order": AttackOrder.Regular,
         "additional_left": 0,
     }
 
@@ -51,9 +48,7 @@ class StrikeEffect(AttackEffect):
         return controller.perform_strike(
             attacker_id=self.attacker_id,
             defender_id=self.defender_id,
-            is_retaliation=self["is_retaliation"],
-            is_preemptive=self["is_preemptive"],
-            is_additional=self["is_additional"],
+            attack_order=self["attack_order"],
             additional_left=self["additional_left"],
         )
 
@@ -66,9 +61,7 @@ class ShootEffect(AttackEffect):
         return controller.perform_shoot(
             shooter_id=self.attacker_id,
             target_id=self.defender_id,
-            is_retaliation=self["is_retaliation"],
-            is_preemptive=self["is_preemptive"],
-            is_additional=self["is_additional"],
+            attack_order=self["attack_order"],
             additional_left=self["additional_left"],
         )
 
@@ -91,9 +84,7 @@ class MoveAndStrikeEffect(Effect):
         move_effect = effect_from_str("Move", params=move_params).bind(target_id=self.source_id)
 
         strike_params = {
-            "is_retaliation": False,
-            "is_preemptive": False,
-            "is_additional": False,
+            "attack_order": AttackOrder.Regular,
         }
         strike_effect = effect_from_str("Strike", params=strike_params).bind(source_id=self.source_id, target_id=self.target_id)
 

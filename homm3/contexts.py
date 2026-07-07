@@ -3,8 +3,9 @@ from typing import Any
 
 import numpy as np
 
+from homm3.effects import effect_from_str
 from homm3.values import Value, GroupedRandomValue, Product, Sum, Term
-from homm3.enums import AttackType, ActionType
+from homm3.enums import AttackOrder, AttackType, ActionType
 from homm3.params import GOOD_LUCK_PROBS, BAD_LUCK_PROBS, RANGE_PENALTY_DISTANCE
 
 
@@ -143,7 +144,7 @@ class PhysicalDamageContext:
     attacker_id: str
     defender_id: str
     attack_type: AttackType
-    is_retaliation: bool
+    attack_order: AttackOrder
     attack: Value
     defense: Value
     luck: Value
@@ -151,6 +152,37 @@ class PhysicalDamageContext:
     damage: Value
     reasons: list[str] = field(default_factory=list)
     rng: np.random.Generator | None = None
+
+
+@dataclass(slots=True)
+class RetaliationContext:
+    attacker_id: str
+    defender_id: str
+    attack_type: AttackType
+    attack_order: AttackOrder
+    allowed: bool = True
+    reasons: list[str] = field(default_factory=list)
+
+    def deny(self, reason: str):
+        if self.allowed:
+            self.allowed = False
+        self.reasons.append(reason)
+
+
+@dataclass(slots=True)
+class AttackFollowupContext:
+    attacker_id: str
+    defender_id: str
+    attack_type: AttackType
+    attack_order: AttackOrder
+    n_died: int
+    additional_left: int
+    effects: list[Any] = field(default_factory=list)
+    reasons: list[str] = field(default_factory=list)
+
+    def add_effect(self, effect: Any, reason: str):
+        self.effects.append(effect)
+        self.reasons.append(reason)
 
 
 @dataclass(slots=True)
@@ -210,7 +242,7 @@ class ContextFactory:
         attacker_id: str,
         defender_id: str,
         attack_type: AttackType,
-        is_retaliation: bool = False,
+        attack_order: AttackOrder = AttackOrder.Regular,
     ) -> PhysicalDamageContext:
         attacker = self.battle.id2stack(attacker_id)
         defender = self.battle.id2stack(defender_id)
@@ -229,7 +261,7 @@ class ContextFactory:
             attacker_id=attacker_id,
             defender_id=defender_id,
             attack_type=attack_type,
-            is_retaliation=is_retaliation,
+            attack_order=attack_order,
             attack=attack,
             defense=defense,
             luck=luck,
@@ -259,6 +291,132 @@ class ContextFactory:
             damage["factor_prod"].mul(luck_modifier)
 
         return ctx
+
+    def make_retaliation_context(
+        self,
+        attacker_id: str,
+        defender_id: str,
+        attack_type: AttackType,
+        attack_order: AttackOrder,
+    ) -> RetaliationContext:
+        attacker = self.battle.id2stack(attacker_id)
+        defender = self.battle.id2stack(defender_id)
+
+        ctx = RetaliationContext(
+            attacker_id=attacker_id,
+            defender_id=defender_id,
+            attack_type=attack_type,
+            attack_order=attack_order,
+        )
+
+        if attack_order != AttackOrder.Regular:
+            ctx.deny(str(attack_order))
+        if attacker.is_died() or defender.is_died():
+            ctx.deny("Dead stack")
+        if isinstance(defender.retaliations, int) and (defender.retaliations == 0):
+            ctx.deny("No retaliations left")
+        if self.battle.distance > 0:
+            ctx.deny("Not adjacent")
+
+        self.apply_modifiers("modify_retaliation", ctx)
+        return ctx
+
+    def make_attack_followup_context(
+        self,
+        attacker_id: str,
+        defender_id: str,
+        attack_type: AttackType,
+        attack_order: AttackOrder,
+        n_died: int,
+        additional_left: int,
+    ) -> AttackFollowupContext:
+        ctx = AttackFollowupContext(
+            attacker_id=attacker_id,
+            defender_id=defender_id,
+            attack_type=attack_type,
+            attack_order=attack_order,
+            n_died=n_died,
+            additional_left=additional_left,
+        )
+
+        if attack_type == AttackType.Melee:
+            self._add_melee_followups(ctx)
+        elif attack_type == AttackType.Ranged:
+            self._add_ranged_followups(ctx)
+
+        self.apply_modifiers("modify_attack_followups", ctx)
+        return ctx
+
+    def _add_melee_followups(self, ctx: AttackFollowupContext):
+        attacker = self.battle.id2stack(ctx.attacker_id)
+        defender = self.battle.id2stack(ctx.defender_id)
+
+        retaliation_ctx = self.make_retaliation_context(
+            attacker_id=attacker.id,
+            defender_id=defender.id,
+            attack_type=ctx.attack_type,
+            attack_order=ctx.attack_order,
+        )
+        if retaliation_ctx.allowed:
+            ctx.add_effect(
+                effect_from_str(
+                    "Strike",
+                    params={"attack_order": AttackOrder.Retaliation},
+                ).bind(source_id=defender.id, target_id=attacker.id),
+                "Retaliation",
+            )
+
+        additional_left = ctx.additional_left
+        if ctx.attack_order == AttackOrder.Regular:
+            additional_left = attacker.n_strikes - 1
+            if (ctx.n_died > 0) and attacker.has_ability("Ferocity"):
+                additional_left += attacker.get_ability("Ferocity")["val"]
+
+        if (additional_left > 0) and self._can_perform_strike(attacker.id, defender.id):
+            ctx.add_effect(
+                effect_from_str(
+                    "Strike",
+                    params={
+                        "attack_order": AttackOrder.Additional,
+                        "additional_left": additional_left - 1,
+                    },
+                ).bind(source_id=attacker.id, target_id=defender.id),
+                "Additional strike",
+            )
+
+    def _can_perform_strike(self, attacker_id: str, defender_id: str) -> bool:
+        attacker = self.battle.id2stack(attacker_id)
+        defender = self.battle.id2stack(defender_id)
+        if attacker.is_died() or defender.is_died():
+            return False
+        ctx = self.make_action_context(attacker.id)
+        action = ctx.get(ActionType.Strike)
+        return (action is not None) and (action.target_id == defender.id)
+
+    def _add_ranged_followups(self, ctx: AttackFollowupContext):
+        shooter = self.battle.id2stack(ctx.attacker_id)
+        target = self.battle.id2stack(ctx.defender_id)
+
+        additional_left = ctx.additional_left
+        if ctx.attack_order == AttackOrder.Regular:
+            additional_left = shooter.n_shoots - 1
+
+        if (
+            (additional_left > 0)
+            and (not shooter.is_died())
+            and (not target.is_died())
+            and (shooter.shots > 0)
+        ):
+            ctx.add_effect(
+                effect_from_str(
+                    "Shoot",
+                    params={
+                        "attack_order": AttackOrder.Additional,
+                        "additional_left": additional_left - 1,
+                    },
+                ).bind(source_id=shooter.id, target_id=target.id),
+                "Additional shot",
+            )
 
     def make_magical_damage_context(
             self,
